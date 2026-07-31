@@ -1,15 +1,6 @@
 (() => {
-  const repoName = "taskbars";
-  const isGitHubPages = window.location.hostname.endsWith(".github.io");
-  const owner = isGitHubPages
-    ? window.location.hostname.slice(0, -".github.io".length)
-    : "";
-  const repositoryURL = owner
-    ? `https://github.com/${owner}/${repoName}`
-    : "https://github.com/";
-  const downloadURL = owner
-    ? `${repositoryURL}/releases/latest/download/Taskbar-S.dmg`
-    : "../dist/Taskbar-S.dmg";
+  const repositoryURL = "https://github.com/safa833/taskbars";
+  const downloadURL = "https://github.com/safa833/taskbars/releases/download/v0.1.0/Taskbar-S-0.1.0.dmg";
 
   document.querySelectorAll("#download-link, #download-link-bottom").forEach((link) => {
     link.href = downloadURL;
