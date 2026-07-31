@@ -1,0 +1,229 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {};
+	objectVersion = 56;
+	objects = {
+
+		A10000000000000000000001 /* TaskbarApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000001 /* TaskbarApp.swift */; };
+		A10000000000000000000002 /* WindowSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000002 /* WindowSnapshot.swift */; };
+		A10000000000000000000003 /* AccessibilityWindowProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000003 /* AccessibilityWindowProvider.swift */; };
+		A10000000000000000000004 /* WindowMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000004 /* WindowMonitor.swift */; };
+		A10000000000000000000005 /* BarPanelController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000005 /* BarPanelController.swift */; };
+		A10000000000000000000006 /* AppKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A20000000000000000000008 /* AppKit.framework */; };
+		A10000000000000000000007 /* ApplicationServices.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A20000000000000000000009 /* ApplicationServices.framework */; };
+		A10000000000000000000008 /* TaskbarPreferences.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000000B /* TaskbarPreferences.swift */; };
+		A10000000000000000000009 /* SettingsWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000000C /* SettingsWindowController.swift */; };
+		A1000000000000000000000A /* PinnedApplicationStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000000D /* PinnedApplicationStore.swift */; };
+		A1000000000000000000000B /* DesktopSpaceProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000000E /* DesktopSpaceProvider.swift */; };
+		A1000000000000000000000C /* Localization.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000000F /* Localization.swift */; };
+		A1000000000000000000000D /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000010 /* Assets.xcassets */; };
+		A1000000000000000000000E /* Localizable.strings in Resources */ = {isa = PBXBuildFile; fileRef = A90000000000000000000001 /* Localizable.strings */; };
+		A1000000000000000000000F /* InfoPlist.strings in Resources */ = {isa = PBXBuildFile; fileRef = A90000000000000000000002 /* InfoPlist.strings */; };
+
+		A20000000000000000000001 /* TaskbarApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskbarApp.swift; sourceTree = "<group>"; };
+		A20000000000000000000002 /* WindowSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowSnapshot.swift; sourceTree = "<group>"; };
+		A20000000000000000000003 /* AccessibilityWindowProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccessibilityWindowProvider.swift; sourceTree = "<group>"; };
+		A20000000000000000000004 /* WindowMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowMonitor.swift; sourceTree = "<group>"; };
+		A20000000000000000000005 /* BarPanelController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BarPanelController.swift; sourceTree = "<group>"; };
+		A20000000000000000000006 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		A20000000000000000000007 /* Taskbar S.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Taskbar S.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		A20000000000000000000008 /* AppKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = AppKit.framework; path = System/Library/Frameworks/AppKit.framework; sourceTree = SDKROOT; };
+		A20000000000000000000009 /* ApplicationServices.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = ApplicationServices.framework; path = System/Library/Frameworks/ApplicationServices.framework; sourceTree = SDKROOT; };
+		A2000000000000000000000A /* Taskbar.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Taskbar.entitlements; sourceTree = "<group>"; };
+		A2000000000000000000000B /* TaskbarPreferences.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskbarPreferences.swift; sourceTree = "<group>"; };
+		A2000000000000000000000C /* SettingsWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsWindowController.swift; sourceTree = "<group>"; };
+		A2000000000000000000000D /* PinnedApplicationStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PinnedApplicationStore.swift; sourceTree = "<group>"; };
+		A2000000000000000000000E /* DesktopSpaceProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DesktopSpaceProvider.swift; sourceTree = "<group>"; };
+		A2000000000000000000000F /* Localization.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Localization.swift; sourceTree = "<group>"; };
+		A20000000000000000000010 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		A20000000000000000000011 /* English Localizable.strings */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = English; path = en.lproj/Localizable.strings; sourceTree = "<group>"; };
+		A20000000000000000000012 /* Turkish Localizable.strings */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = Turkish; path = tr.lproj/Localizable.strings; sourceTree = "<group>"; };
+		A20000000000000000000013 /* English InfoPlist.strings */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = English; path = en.lproj/InfoPlist.strings; sourceTree = "<group>"; };
+		A20000000000000000000014 /* Turkish InfoPlist.strings */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = Turkish; path = tr.lproj/InfoPlist.strings; sourceTree = "<group>"; };
+
+		A30000000000000000000001 = {
+			isa = PBXGroup;
+			children = (
+				A30000000000000000000002 /* Taskbar */,
+				A30000000000000000000003 /* Frameworks */,
+				A30000000000000000000004 /* Products */,
+				A2000000000000000000000A /* Taskbar.entitlements */,
+			);
+			sourceTree = "<group>";
+		};
+		A30000000000000000000002 /* Taskbar */ = {
+			isa = PBXGroup;
+			children = (
+				A20000000000000000000001 /* TaskbarApp.swift */,
+				A20000000000000000000002 /* WindowSnapshot.swift */,
+				A20000000000000000000003 /* AccessibilityWindowProvider.swift */,
+				A2000000000000000000000E /* DesktopSpaceProvider.swift */,
+				A20000000000000000000004 /* WindowMonitor.swift */,
+				A20000000000000000000005 /* BarPanelController.swift */,
+				A2000000000000000000000B /* TaskbarPreferences.swift */,
+				A2000000000000000000000C /* SettingsWindowController.swift */,
+				A2000000000000000000000D /* PinnedApplicationStore.swift */,
+				A2000000000000000000000F /* Localization.swift */,
+				A20000000000000000000010 /* Assets.xcassets */,
+				A90000000000000000000001 /* Localizable.strings */,
+				A90000000000000000000002 /* InfoPlist.strings */,
+				A20000000000000000000006 /* Info.plist */,
+			);
+			path = Taskbar;
+			sourceTree = "<group>";
+		};
+		A30000000000000000000003 /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				A20000000000000000000008 /* AppKit.framework */,
+				A20000000000000000000009 /* ApplicationServices.framework */,
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
+		A30000000000000000000004 /* Products */ = {
+			isa = PBXGroup;
+			children = (A20000000000000000000007 /* Taskbar S.app */);
+			name = Products;
+			sourceTree = "<group>";
+		};
+
+		A40000000000000000000001 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A10000000000000000000001 /* TaskbarApp.swift in Sources */,
+				A10000000000000000000002 /* WindowSnapshot.swift in Sources */,
+				A10000000000000000000003 /* AccessibilityWindowProvider.swift in Sources */,
+				A1000000000000000000000B /* DesktopSpaceProvider.swift in Sources */,
+				A10000000000000000000004 /* WindowMonitor.swift in Sources */,
+				A10000000000000000000005 /* BarPanelController.swift in Sources */,
+				A10000000000000000000008 /* TaskbarPreferences.swift in Sources */,
+				A10000000000000000000009 /* SettingsWindowController.swift in Sources */,
+				A1000000000000000000000A /* PinnedApplicationStore.swift in Sources */,
+				A1000000000000000000000C /* Localization.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A40000000000000000000002 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A10000000000000000000006 /* AppKit.framework in Frameworks */,
+				A10000000000000000000007 /* ApplicationServices.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A40000000000000000000003 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A1000000000000000000000D /* Assets.xcassets in Resources */,
+				A1000000000000000000000E /* Localizable.strings in Resources */,
+				A1000000000000000000000F /* InfoPlist.strings in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+
+		A50000000000000000000001 /* Taskbar */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A70000000000000000000002 /* Build configuration list for PBXNativeTarget "Taskbar" */;
+			buildPhases = (
+				A40000000000000000000001 /* Sources */,
+				A40000000000000000000002 /* Frameworks */,
+				A40000000000000000000003 /* Resources */,
+			);
+			buildRules = ();
+			dependencies = ();
+			name = Taskbar;
+			productName = Taskbar;
+			productReference = A20000000000000000000007 /* Taskbar S.app */;
+			productType = "com.apple.product-type.application";
+		};
+
+		A60000000000000000000001 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 1630;
+				LastUpgradeCheck = 1630;
+				TargetAttributes = { A50000000000000000000001 = { CreatedOnToolsVersion = 16.3; }; };
+			};
+			buildConfigurationList = A70000000000000000000001 /* Build configuration list for PBXProject "Taskbar" */;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (en, tr, Base);
+			mainGroup = A30000000000000000000001;
+			productRefGroup = A30000000000000000000004 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (A50000000000000000000001 /* Taskbar */);
+		};
+
+		A80000000000000000000001 /* Debug */ = {isa = XCBuildConfiguration; buildSettings = {CLANG_ENABLE_MODULES = YES; MACOSX_DEPLOYMENT_TARGET = 13.0; SDKROOT = macosx; SWIFT_OPTIMIZATION_LEVEL = "-Onone"; SWIFT_VERSION = 5.0; }; name = Debug; };
+		A80000000000000000000002 /* Release */ = {isa = XCBuildConfiguration; buildSettings = {CLANG_ENABLE_MODULES = YES; MACOSX_DEPLOYMENT_TARGET = 13.0; SDKROOT = macosx; SWIFT_COMPILATION_MODE = wholemodule; SWIFT_OPTIMIZATION_LEVEL = "-O"; SWIFT_VERSION = 5.0; }; name = Release; };
+		A80000000000000000000003 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = Taskbar/Taskbar.entitlements;
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_INJECT_BASE_ENTITLEMENTS = NO;
+				CODE_SIGN_IDENTITY = "-";
+				CODE_SIGN_STYLE = Manual;
+				ENABLE_HARDENED_RUNTIME = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = Taskbar/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/../Frameworks";
+				PRODUCT_BUNDLE_IDENTIFIER = com.taskbars.TaskbarS;
+				PRODUCT_NAME = "Taskbar S";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+			};
+			name = Debug;
+		};
+		A80000000000000000000004 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = Taskbar/Taskbar.entitlements;
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ARCHS = "arm64 x86_64";
+				CODE_SIGN_INJECT_BASE_ENTITLEMENTS = NO;
+				CODE_SIGN_IDENTITY = "-";
+				CODE_SIGN_STYLE = Manual;
+				ENABLE_HARDENED_RUNTIME = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = Taskbar/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/../Frameworks";
+				ONLY_ACTIVE_ARCH = NO;
+				PRODUCT_BUNDLE_IDENTIFIER = com.taskbars.TaskbarS;
+				PRODUCT_NAME = "Taskbar S";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+			};
+			name = Release;
+		};
+
+		A70000000000000000000001 /* Build configuration list for PBXProject "Taskbar" */ = {isa = XCConfigurationList; buildConfigurations = (A80000000000000000000001 /* Debug */, A80000000000000000000002 /* Release */); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
+		A70000000000000000000002 /* Build configuration list for PBXNativeTarget "Taskbar" */ = {isa = XCConfigurationList; buildConfigurations = (A80000000000000000000003 /* Debug */, A80000000000000000000004 /* Release */); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
+
+		A90000000000000000000001 /* Localizable.strings */ = {
+			isa = PBXVariantGroup;
+			children = (
+				A20000000000000000000011 /* English Localizable.strings */,
+				A20000000000000000000012 /* Turkish Localizable.strings */,
+			);
+			name = Localizable.strings;
+			sourceTree = "<group>";
+		};
+		A90000000000000000000002 /* InfoPlist.strings */ = {
+			isa = PBXVariantGroup;
+			children = (
+				A20000000000000000000013 /* English InfoPlist.strings */,
+				A20000000000000000000014 /* Turkish InfoPlist.strings */,
+			);
+			name = InfoPlist.strings;
+			sourceTree = "<group>";
+		};
+	};
+	rootObject = A60000000000000000000001 /* Project object */;
+}

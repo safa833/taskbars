@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Taskbar S is a native Windows-style taskbar for macOS with per-window buttons, pinning, Spaces support, and customizable sizing.">
+  <meta name="theme-color" content="#090b12">
+  <title>Taskbar S — A real taskbar for macOS</title>
+  <link rel="icon" type="image/png" href="assets/taskbar-s-icon.png">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="nav-wrap">
+    <nav class="nav" aria-label="Main navigation">
+      <a class="brand" href="#top" aria-label="Taskbar S home">
+        <img src="assets/taskbar-s-icon.png" alt="" width="34" height="34">
+        <span>Taskbar S</span>
+      </a>
+      <div class="nav-links">
+        <a href="#features">Features</a>
+        <a href="#install">Install</a>
+        <a id="source-link" href="https://github.com/" rel="noreferrer">GitHub</a>
+      </div>
+    </nav>
+  </header>
+
+  <main id="top">
+    <section class="hero section">
+      <div class="hero-copy">
+        <p class="eyebrow"><span class="status-dot"></span> Native macOS utility · Open source</p>
+        <h1>The taskbar your Mac was missing.</h1>
+        <p class="lede">Taskbar S gives every real window its own predictable button, keeps applications grouped, and makes switching, pinning, launching, and rearranging feel immediate.</p>
+        <div class="hero-actions">
+          <a id="download-link" class="button primary" href="#install">Download for macOS</a>
+          <a class="button secondary" href="#features">Explore features</a>
+        </div>
+        <p class="requirements">Requires macOS 13 or newer · English and Turkish</p>
+      </div>
+      <div class="hero-art" aria-label="Taskbar S application icon">
+        <div class="glow"></div>
+        <img src="assets/taskbar-s-icon.png" alt="Taskbar S icon" width="520" height="520">
+        <div class="mini-taskbar" aria-hidden="true">
+          <span class="launcher">••<br>••</span>
+          <span class="app active"><i></i><b>Focused window</b></span>
+          <span class="app launching"><i></i><b>Launching</b></span>
+          <span class="pinned"></span>
+        </div>
+      </div>
+    </section>
+
+    <section class="proof-strip" aria-label="Key capabilities">
+      <span>Per-window buttons</span>
+      <span>Independent Spaces</span>
+      <span>Pin &amp; launch</span>
+      <span>Animated reordering</span>
+    </section>
+
+    <section id="features" class="section feature-section">
+      <div class="section-heading">
+        <p class="eyebrow">Window switching, made direct</p>
+        <h2>Built around the way a taskbar should behave.</h2>
+        <p>No application-level ambiguity. Click the item you mean and Taskbar S brings that exact window forward.</p>
+      </div>
+      <div class="feature-grid">
+        <article class="feature-card featured">
+          <div class="icon-box blue">01</div>
+          <h3>One button, one window</h3>
+          <p>Windows stay in stable order inside their application group. Focus changes never reorder your taskbar.</p>
+        </article>
+        <article class="feature-card">
+          <div class="icon-box orange">02</div>
+          <h3>Clear launch feedback</h3>
+          <p>An orange border appears as soon as an app begins launching, then hands off to the blue focus state when its real window arrives.</p>
+        </article>
+        <article class="feature-card">
+          <div class="icon-box violet">03</div>
+          <h3>Pin what matters</h3>
+          <p>Keep favorite applications ready. Left-click to launch, middle-click for a new window, or use the full context menu.</p>
+        </article>
+        <article class="feature-card">
+          <div class="icon-box cyan">04</div>
+          <h3>Every Space stays independent</h3>
+          <p>Each macOS desktop shows only its own windows and keeps its own application group order.</p>
+        </article>
+        <article class="feature-card">
+          <div class="icon-box green">05</div>
+          <h3>Drag with confidence</h3>
+          <p>Groups remain locked to the taskbar while you drag. Neighboring items slide out of the way with responsive animation.</p>
+        </article>
+        <article class="feature-card">
+          <div class="icon-box silver">06</div>
+          <h3>Filters the noise</h3>
+          <p>Tooltips, tab previews, menus, Caps Lock indicators, and other transient utility windows do not become taskbar items.</p>
+        </article>
+      </div>
+    </section>
+
+    <section class="section behavior-section">
+      <div class="behavior-copy">
+        <p class="eyebrow">Feels integrated</p>
+        <h2>Respects full screen, maximize, snap, and manual movement.</h2>
+        <p>Automatic window layouts stop above the taskbar, while manually dragged windows remain free to move underneath it. Full-screen applications hide Taskbar S automatically.</p>
+        <ul class="check-list">
+          <li>Restores the previous size when a snapped window is dragged by its title bar</li>
+          <li>Compresses item widths only when screen space gets tight</li>
+          <li>Keeps temporary system UI out of the window list</li>
+        </ul>
+      </div>
+      <div class="settings-card">
+        <div class="settings-header"><span></span><span></span><span></span><b>Appearance</b></div>
+        <div class="setting"><label>Panel height</label><div class="slider"><i style="width:38%"></i></div><output>43 px</output></div>
+        <div class="setting"><label>Maximum item width</label><div class="slider"><i style="width:48%"></i></div><output>173 px</output></div>
+        <div class="setting"><label>Item spacing</label><div class="slider"><i style="width:5%"></i></div><output>0 px</output></div>
+        <div class="setting"><label>Icon size</label><div class="slider"><i style="width:92%"></i></div><output>48 px</output></div>
+        <div class="setting"><label>Animation</label><div class="slider orange-line"><i style="width:36%"></i></div><output>120 ms</output></div>
+      </div>
+    </section>
+
+    <section id="install" class="section install-section">
+      <div class="section-heading compact">
+        <p class="eyebrow">Get started</p>
+        <h2>From download to taskbar in a minute.</h2>
+      </div>
+      <ol class="steps">
+        <li><span>1</span><div><h3>Download</h3><p>Get the latest <code>Taskbar-S.dmg</code> release.</p></div></li>
+        <li><span>2</span><div><h3>Move to Applications</h3><p>Open the DMG and drag Taskbar S into the Applications folder.</p></div></li>
+        <li><span>3</span><div><h3>Open once</h3><p>For the current non-notarized build, Control-click the app and choose Open.</p></div></li>
+        <li><span>4</span><div><h3>Grant Accessibility</h3><p>Enable Taskbar S in System Settings → Privacy &amp; Security → Accessibility.</p></div></li>
+      </ol>
+      <div class="download-panel">
+        <div>
+          <h3>Ready for a more direct way to switch windows?</h3>
+          <p>Free, local, and MIT licensed.</p>
+        </div>
+        <a id="download-link-bottom" class="button primary" href="#">Download Taskbar S</a>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <div class="footer-inner">
+      <div class="brand"><img src="assets/taskbar-s-icon.png" alt="" width="30" height="30"><span>Taskbar S</span></div>
+      <p>Runs locally. No analytics, accounts, advertising, or tracking.</p>
+      <p>MIT License · <span id="year"></span></p>
+    </div>
+  </footer>
+
+  <script src="site.js"></script>
+</body>
+</html>
