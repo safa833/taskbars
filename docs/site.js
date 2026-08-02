@@ -1,6 +1,6 @@
 (() => {
   const repositoryURL = "https://github.com/safa833/taskbars";
-  const downloadURL = "https://github.com/safa833/taskbars/releases/download/v0.1.0/Taskbar-S-0.1.0.dmg";
+  const downloadURL = "https://github.com/safa833/taskbars/releases/download/v0.2.0/Taskbar-S-0.2.0.dmg";
 
   document.querySelectorAll("#download-link, #download-link-bottom").forEach((link) => {
     link.href = downloadURL;

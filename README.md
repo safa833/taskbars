@@ -9,7 +9,7 @@
 
 ## What it does
 
-Taskbar S places a native taskbar at the bottom of the current macOS display. Every accepted application window gets its own button, while windows from the same application stay together as a stable group.
+Taskbar S places a native taskbar at the bottom of every connected macOS display. Each taskbar shows only the windows assigned to that display. Every accepted application window gets its own button, while windows from the same application stay together as a stable group.
 
 ### Highlights
 
@@ -20,10 +20,12 @@ Taskbar S places a native taskbar at the bottom of the current macOS display. Ev
 - Horizontal, taskbar-constrained dragging
 - Pin and unpin applications from the context menu
 - Launch pinned applications with a single click
+- Relaunch pinned applications after Quit, including apps that restart without presenting a window automatically
 - Orange launch indicator until the first real window appears
 - Open a new window from the context menu or with middle-click
 - Minimize, restore, close, and quit actions
 - Per-Space taskbar contents, so macOS desktops remain independent
+- Per-display taskbars that keep each monitor's windows and ordering independent
 - Transient popup, tooltip, HUD, and menu filtering
 - Automatic item-width compression when the taskbar fills up
 - Fast horizontal insertion and removal animations
@@ -65,7 +67,24 @@ Taskbar S is an accessory application, so it does not show a normal Dock icon or
 - **Middle-click:** launch it or create a new window when already running.
 - **Right-click:** open, create a new window, or unpin it.
 
-An orange border means the application is launching. A blue border marks the focused window. Pinned applications without an open window remain as square icon buttons.
+Pinned applications remain in the taskbar after **Quit**. Clicking one starts the application again. If macOS starts the process but the application does not present a window, Taskbar S waits for it to finish launching and requests its first window automatically.
+
+### Launch and focus indicators
+
+- An **orange border** means an application launch is in progress.
+- A **blue border** marks the focused window.
+- The orange state ends when the first accepted application window appears.
+- If no application process or window appears before the launch timeout, the orange state is cleared so the pinned button remains usable.
+
+Pinned applications without an open window remain as square icon buttons.
+
+### Displays and Spaces
+
+- Every connected display receives its own taskbar.
+- A taskbar shows only the windows assigned to that display and its currently active Space.
+- Application-group order is stored independently for each display and Space.
+- Changing desktops on one display does not replace the contents of another display's taskbar.
+- Full-screen applications hide only the taskbar on the affected display.
 
 ### Settings
 
@@ -81,6 +100,15 @@ open Taskbar.xcodeproj
 
 Select the `Taskbar` scheme and run it on your local Mac. The repository uses generic ad-hoc signing settings, so no Apple development team needs to be configured.
 
+For a clean local build that leaves only the runnable application in `build/`:
+
+```bash
+./scripts/build-local.sh
+open "build/Taskbar S.app"
+```
+
+The local build script automatically uses an available Apple Development signing identity so macOS can preserve Accessibility permission between builds. It falls back to ad-hoc signing when no development identity is installed.
+
 To build the release DMG from Terminal:
 
 ```bash
@@ -90,7 +118,7 @@ To build the release DMG from Terminal:
 The script creates both versioned and stable filenames in `dist/`:
 
 ```text
-dist/Taskbar-S-0.1.0.dmg
+dist/Taskbar-S-0.2.0.dmg
 dist/Taskbar-S.dmg
 ```
 
@@ -101,6 +129,7 @@ The static product website lives in [`docs/`](docs/). Enable GitHub Pages with *
 ## Release notes and limitations
 
 - The app relies on macOS Accessibility APIs and private Space metadata to associate windows with desktops.
+- macOS and the launched application choose a new window's initial display. Taskbar S can place the window afterward, but cannot guarantee that every third-party application draws its very first frame on the taskbar's display.
 - macOS may ask for Accessibility permission again when the app identity or signature changes.
 - The current public package is ad-hoc signed. A fully frictionless public release requires an Apple Developer Program membership, a Developer ID Application certificate, and notarization.
 - Taskbar S does not replace or modify the macOS Dock; you may hide the Dock separately in System Settings.

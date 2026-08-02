@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="Taskbar S is a native Windows-style taskbar for macOS with per-window buttons, pinning, Spaces support, and customizable sizing.">
+  <meta name="description" content="Taskbar S is a native Windows-style taskbar for macOS with per-window buttons, reliable pinned-app relaunching, per-display Spaces support, and customizable sizing.">
   <meta name="theme-color" content="#090b12">
   <title>Taskbar S — A real taskbar for macOS</title>
   <link rel="icon" type="image/png" href="assets/taskbar-s-icon.png">
@@ -18,6 +18,7 @@
       </a>
       <div class="nav-links">
         <a href="#features">Features</a>
+        <a href="#controls">Controls</a>
         <a href="#install">Install</a>
         <a id="source-link" href="https://github.com/" rel="noreferrer">GitHub</a>
       </div>
@@ -31,7 +32,7 @@
         <h1>The taskbar your Mac was missing.</h1>
         <p class="lede">Taskbar S gives every real window its own predictable button, keeps applications grouped, and makes switching, pinning, launching, and rearranging feel immediate.</p>
         <div class="hero-actions">
-          <a id="download-link" class="button primary" href="https://github.com/safa833/taskbars/releases/download/v0.1.0/Taskbar-S-0.1.0.dmg">Download for macOS</a>
+          <a id="download-link" class="button primary" href="https://github.com/safa833/taskbars/releases/download/v0.2.0/Taskbar-S-0.2.0.dmg">Download for macOS</a>
           <a class="button secondary" href="#features">Explore features</a>
         </div>
         <p class="requirements">Requires macOS 13 or newer · English and Turkish</p>
@@ -51,7 +52,7 @@
     <section class="proof-strip" aria-label="Key capabilities">
       <span>Per-window buttons</span>
       <span>Independent Spaces</span>
-      <span>Pin &amp; launch</span>
+      <span>Relaunch after Quit</span>
       <span>Animated reordering</span>
     </section>
 
@@ -70,17 +71,17 @@
         <article class="feature-card">
           <div class="icon-box orange">02</div>
           <h3>Clear launch feedback</h3>
-          <p>An orange border appears as soon as an app begins launching, then hands off to the blue focus state when its real window arrives.</p>
+          <p>An orange border appears as soon as an app begins launching, then hands off to the blue focus state when its first real window arrives.</p>
         </article>
         <article class="feature-card">
           <div class="icon-box violet">03</div>
           <h3>Pin what matters</h3>
-          <p>Keep favorite applications ready. Left-click to launch, middle-click for a new window, or use the full context menu.</p>
+          <p>Keep favorite applications ready even after Quit. Taskbar S relaunches the app and requests a first window if the restarted process stays windowless.</p>
         </article>
         <article class="feature-card">
           <div class="icon-box cyan">04</div>
-          <h3>Every Space stays independent</h3>
-          <p>Each macOS desktop shows only its own windows and keeps its own application group order.</p>
+          <h3>Every display stays independent</h3>
+          <p>Each monitor gets its own taskbar with only that display's windows. Spaces and application group order remain independent too.</p>
         </article>
         <article class="feature-card">
           <div class="icon-box green">05</div>
@@ -95,6 +96,46 @@
       </div>
     </section>
 
+    <section id="controls" class="section feature-section">
+      <div class="section-heading">
+        <p class="eyebrow">Everyday controls</p>
+        <h2>Familiar actions, without hunting through the Dock.</h2>
+        <p>Window buttons and pinned buttons provide direct mouse controls, while each display and Space keeps its own taskbar contents.</p>
+      </div>
+      <div class="feature-grid">
+        <article class="feature-card">
+          <div class="icon-box blue">L</div>
+          <h3>Left-click</h3>
+          <p>Focus that exact window, or launch a pinned application that is not currently open.</p>
+        </article>
+        <article class="feature-card">
+          <div class="icon-box cyan">M</div>
+          <h3>Middle-click</h3>
+          <p>Open the application when closed or request a new window when it is already running.</p>
+        </article>
+        <article class="feature-card">
+          <div class="icon-box violet">R</div>
+          <h3>Right-click</h3>
+          <p>Create a new window, minimize, restore, close, pin or unpin, and quit the application.</p>
+        </article>
+        <article class="feature-card">
+          <div class="icon-box green">↔</div>
+          <h3>Drag horizontally</h3>
+          <p>Reorder a complete application group with taskbar-constrained movement and animated displacement.</p>
+        </article>
+        <article class="feature-card">
+          <div class="icon-box orange">●</div>
+          <h3>Orange means launching</h3>
+          <p>The launch state remains visible until a real application window appears, then clears automatically.</p>
+        </article>
+        <article class="feature-card">
+          <div class="icon-box silver">▣</div>
+          <h3>Display-aware contents</h3>
+          <p>Each monitor shows only its own windows for the active Space, with independent application-group ordering.</p>
+        </article>
+      </div>
+    </section>
+
     <section class="section behavior-section">
       <div class="behavior-copy">
         <p class="eyebrow">Feels integrated</p>
@@ -104,6 +145,7 @@
           <li>Restores the previous size when a snapped window is dragged by its title bar</li>
           <li>Compresses item widths only when screen space gets tight</li>
           <li>Keeps temporary system UI out of the window list</li>
+          <li>Recovers windowless application launches after Quit</li>
         </ul>
       </div>
       <div class="settings-card">
@@ -122,7 +164,7 @@
         <h2>From download to taskbar in a minute.</h2>
       </div>
       <ol class="steps">
-        <li><span>1</span><div><h3>Download</h3><p>Get the latest <code>Taskbar-S-0.1.0.dmg</code> release.</p></div></li>
+        <li><span>1</span><div><h3>Download</h3><p>Get the latest <code>Taskbar-S-0.2.0.dmg</code> release.</p></div></li>
         <li><span>2</span><div><h3>Move to Applications</h3><p>Open the DMG and drag Taskbar S into the Applications folder.</p></div></li>
         <li><span>3</span><div><h3>Open once</h3><p>For the current non-notarized build, Control-click the app and choose Open.</p></div></li>
         <li><span>4</span><div><h3>Grant Accessibility</h3><p>Enable Taskbar S in System Settings → Privacy &amp; Security → Accessibility.</p></div></li>
@@ -132,7 +174,7 @@
           <h3>Ready for a more direct way to switch windows?</h3>
           <p>Free, local, and MIT licensed.</p>
         </div>
-        <a id="download-link-bottom" class="button primary" href="https://github.com/safa833/taskbars/releases/download/v0.1.0/Taskbar-S-0.1.0.dmg">Download Taskbar S</a>
+        <a id="download-link-bottom" class="button primary" href="https://github.com/safa833/taskbars/releases/download/v0.2.0/Taskbar-S-0.2.0.dmg">Download Taskbar S</a>
       </div>
     </section>
   </main>

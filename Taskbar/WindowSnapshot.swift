@@ -51,6 +51,7 @@ struct ApplicationIdentity: Codable, Hashable {
 struct WindowSnapshot {
     let element: AXUIElement
     let application: NSRunningApplication
+    let displayIdentifier: CGDirectDisplayID?
     let title: String
     let isMinimized: Bool
     let isFocused: Bool
@@ -75,6 +76,7 @@ struct WindowSnapshot {
 }
 
 struct TaskbarState {
+    let displayIdentifier: CGDirectDisplayID
     let isAccessibilityTrusted: Bool
     let spaceIdentifier: DesktopSpaceProvider.SpaceIdentifier
     let isFullScreenActive: Bool

@@ -16,6 +16,19 @@ private func windowMonitorAccessibilityCallback(
 final class WindowMonitor {
     var onChange: ((TaskbarState) -> Void)?
 
+    private struct DisplaySpaceContext: Hashable {
+        let displayIdentifier: CGDirectDisplayID
+        let spaceIdentifier: DesktopSpaceProvider.SpaceIdentifier
+    }
+
+    private struct PendingWindowPlacement {
+        var displayIdentifier: CGDirectDisplayID
+        let requestedAt: Date
+        let existingWindowIdentifiers: Set<CGWindowID>
+        var allowsExistingWindowFallback: Bool
+        var presentationIsSuppressed: Bool
+    }
+
     private let provider = AccessibilityWindowProvider()
     private let pinnedStore = PinnedApplicationStore()
     private let logger = Logger(
@@ -32,34 +45,43 @@ final class WindowMonitor {
     private var accessibilityObservers: [pid_t: AXObserver] = [:]
     private var accessibilityRefreshScheduled = false
     private var accessibilityRetryGeneration: UInt = 0
-    private var reservedWorkArea: ReservedWorkArea?
+    private var reservedWorkAreasByDisplay: [CGDirectDisplayID: ReservedWorkArea] = [:]
     private var manuallyPositionedWindowIdentifiers: Set<CGWindowID> = []
-    private var activeSpaceIdentifier: DesktopSpaceProvider.SpaceIdentifier = 0
-    private var applicationOrdersBySpace: [
-        DesktopSpaceProvider.SpaceIdentifier: [ApplicationIdentity]
+    private var activeSpaceIdentifiersByDisplay: [
+        CGDirectDisplayID: DesktopSpaceProvider.SpaceIdentifier
+    ] = [:]
+    private var applicationOrdersByContext: [
+        DisplaySpaceContext: [ApplicationIdentity]
     ] = [:]
     private var runningApplicationsByIdentity: [ApplicationIdentity: [NSRunningApplication]] = [:]
-    private var currentSpaceWindowsByIdentity: [ApplicationIdentity: [WindowSnapshot]] = [:]
+    private var currentWindowsByDisplay: [
+        CGDirectDisplayID: [ApplicationIdentity: [WindowSnapshot]]
+    ] = [:]
+    private var currentWindowIdentifiersByIdentity: [
+        ApplicationIdentity: Set<CGWindowID>
+    ] = [:]
     private var lastItemsByIdentity: [ApplicationIdentity: TaskbarApplicationItem] = [:]
     private var windowOrderByProcess: [pid_t: [AXUIElement]] = [:]
     private var noWindowSinceByIdentity: [ApplicationIdentity: Date] = [:]
     private var lastTerminationRequestByIdentity: [ApplicationIdentity: Date] = [:]
     private var pendingLaunchesByIdentity: [ApplicationIdentity: Date] = [:]
     private var observedLaunchProcessByIdentity: [ApplicationIdentity: pid_t] = [:]
+    private var coldLaunchWindowCommandByIdentity: [ApplicationIdentity: Date] = [:]
     private var launchIndicatorStartedAtByIdentity: [ApplicationIdentity: Date] = [:]
     private var launchApplicationsByIdentity: [ApplicationIdentity: NSRunningApplication] = [:]
+    private var launchDisplayByIdentity: [ApplicationIdentity: CGDirectDisplayID] = [:]
+    private var pendingWindowPlacementsByIdentity: [
+        ApplicationIdentity: PendingWindowPlacement
+    ] = [:]
     private let savedGroupOrderKey = "behavior.applicationGroupOrder.v2"
     private let legacyGroupOrderKey = "behavior.applicationGroupOrder"
     private let windowlessTerminationDelay: TimeInterval = 2
     private let pendingLaunchTimeout: TimeInterval = 30
     private let launchProcessObservationTimeout: TimeInterval = 5
+    private let existingWindowPlacementFallbackDelay: TimeInterval = 0.8
+    private let windowPlacementTimeout: TimeInterval = 8
     private let terminationRetryDelay: TimeInterval = 8
     private let terminationExclusions: Set<String> = ["com.apple.finder"]
-
-    private var applicationOrder: [ApplicationIdentity] {
-        get { applicationOrdersBySpace[activeSpaceIdentifier] ?? [] }
-        set { applicationOrdersBySpace[activeSpaceIdentifier] = newValue }
-    }
 
     func start() {
         guard !isStarted else { return }
@@ -94,22 +116,28 @@ final class WindowMonitor {
            let identity = identity(for: application) {
             if notification.name == NSWorkspace.willLaunchApplicationNotification,
                application.activationPolicy == .regular {
+                installAccessibilityObserverIfNeeded(for: application)
                 beginLaunchIndicator(for: identity, application: application)
             } else if notification.name == NSWorkspace.didLaunchApplicationNotification,
                       application.activationPolicy == .regular {
+                installAccessibilityObserverIfNeeded(for: application)
                 beginLaunchIndicator(for: identity, application: application)
             }
 
             if notification.name == NSWorkspace.didLaunchApplicationNotification,
-               pendingLaunchesByIdentity[identity] != nil {
+               let requestedAt = pendingLaunchesByIdentity[identity] {
                 observedLaunchProcessByIdentity[identity] = application.processIdentifier
                 logger.notice(
                     "Workspace observed launched application \(identity.identifier, privacy: .public), pid=\(application.processIdentifier)"
                 )
-                application.activate(
-                    options: [.activateAllWindows, .activateIgnoringOtherApps]
+                scheduleColdLaunchWindowRecovery(
+                    identity: identity,
+                    application: application,
+                    requestedAt: requestedAt
                 )
             } else if notification.name == NSWorkspace.didTerminateApplicationNotification {
+                cancelWindowPlacement(for: identity)
+                coldLaunchWindowCommandByIdentity.removeValue(forKey: identity)
                 if observedLaunchProcessByIdentity[identity] == application.processIdentifier {
                     pendingLaunchesByIdentity.removeValue(forKey: identity)
                     observedLaunchProcessByIdentity.removeValue(forKey: identity)
@@ -131,6 +159,8 @@ final class WindowMonitor {
         accessibilityRetryGeneration &+= 1
         timer?.invalidate()
         timer = nil
+        let pendingIdentities = Array(pendingWindowPlacementsByIdentity.keys)
+        pendingIdentities.forEach(cancelWindowPlacement)
         removeAllAccessibilityObservers()
 
         let center = NSWorkspace.shared.notificationCenter
@@ -141,9 +171,26 @@ final class WindowMonitor {
     func refresh() {
         let trusted = provider.isTrusted
         removeExpiredLaunchStates()
-        activeSpaceIdentifier = provider.currentSpaceIdentifier(
-            forDisplayIdentifier: reservedWorkArea?.displayIdentifier
+        let displayIdentifiers = orderedDisplayIdentifiers()
+        let displayIdentifierSet = Set(displayIdentifiers)
+        activeSpaceIdentifiersByDisplay = Dictionary(
+            uniqueKeysWithValues: displayIdentifiers.map { displayIdentifier in
+                (
+                    displayIdentifier,
+                    provider.currentSpaceIdentifier(
+                        forDisplayIdentifier: displayIdentifier
+                    )
+                )
+            }
         )
+        if let fallbackDisplayIdentifier = displayIdentifiers.first {
+            for identity in launchIndicatorStartedAtByIdentity.keys
+            where launchDisplayByIdentity[identity].map({
+                !displayIdentifierSet.contains($0)
+            }) ?? true {
+                launchDisplayByIdentity[identity] = fallbackDisplayIdentifier
+            }
+        }
         let runningApplications = NSWorkspace.shared.runningApplications
             .filter { $0.activationPolicy == .regular && !$0.isTerminated }
 
@@ -189,44 +236,97 @@ final class WindowMonitor {
         provider.pruneWindowStates(
             keeping: allWindowsByIdentity.values.flatMap { $0 }
         )
+        currentWindowIdentifiersByIdentity = allWindowsByIdentity.mapValues { windows in
+            Set(windows.compactMap { provider.windowIdentifier(for: $0.element) })
+        }
+        applyPendingWindowPlacements(to: allWindowsByIdentity)
         let liveWindowIdentifiers = Set(
             allWindowsByIdentity.values
                 .flatMap { $0 }
                 .compactMap { provider.windowIdentifier(for: $0.element) }
         )
         manuallyPositionedWindowIdentifiers.formIntersection(liveWindowIdentifiers)
+        runningApplicationsByIdentity = runningByIdentity
 
-        let windowsByIdentity = allWindowsByIdentity.mapValues { windows in
-            windows.filter { snapshot in
-                snapshot.spaceIdentifiers.contains(activeSpaceIdentifier)
+        let globalLaunchIdentityOrder = launchIndicatorStartedAtByIdentity
+            .sorted { $0.value < $1.value }
+            .map(\.key)
+        let pinnedRecords = pinnedStore.records
+        currentWindowsByDisplay.removeAll(keepingCapacity: true)
+        lastItemsByIdentity.removeAll(keepingCapacity: true)
+
+        for displayIdentifier in displayIdentifiers {
+            let spaceIdentifier = activeSpaceIdentifiersByDisplay[displayIdentifier] ?? 0
+            let context = DisplaySpaceContext(
+                displayIdentifier: displayIdentifier,
+                spaceIdentifier: spaceIdentifier
+            )
+            let windowsByIdentity = allWindowsByIdentity.mapValues { windows in
+                windows.filter { snapshot in
+                    window(snapshot, belongsTo: displayIdentifier, among: displayIdentifiers)
+                        && snapshot.spaceIdentifiers.contains(spaceIdentifier)
+                }
             }
-        }
-        let isFullScreenActive = allWindowsByIdentity.values.contains { windows in
-            windows.contains { snapshot in
-                !snapshot.spaceIdentifiers.isEmpty
-                    && snapshot.spaceIdentifiers.contains(activeSpaceIdentifier)
-                    && snapshot.isFullScreen == true
+            currentWindowsByDisplay[displayIdentifier] = windowsByIdentity
+
+            let isFullScreenActive = windowsByIdentity.values.contains { windows in
+                windows.contains { snapshot in
+                    snapshot.isFullScreen == true
+                }
             }
-        }
-        currentSpaceWindowsByIdentity = windowsByIdentity
-        if !isFullScreenActive, let reservedWorkArea {
-            enforceReservedWorkArea(
-                on: windowsByIdentity.values.flatMap { $0 },
-                reservedWorkArea: reservedWorkArea
+            if !isFullScreenActive,
+               let reservedWorkArea = reservedWorkAreasByDisplay[displayIdentifier] {
+                enforceReservedWorkArea(
+                    on: windowsByIdentity.values.flatMap { $0 },
+                    reservedWorkArea: reservedWorkArea,
+                    activeSpaceIdentifier: spaceIdentifier
+                )
+            }
+
+            let items = taskbarItems(
+                for: context,
+                windowsByIdentity: windowsByIdentity,
+                runningByIdentity: runningByIdentity,
+                runningIdentityOrder: runningIdentityOrder,
+                pinnedRecords: pinnedRecords,
+                globalLaunchIdentityOrder: globalLaunchIdentityOrder
+            )
+            for item in items {
+                if let existing = lastItemsByIdentity[item.identity],
+                   existing.windows.count >= item.windows.count {
+                    continue
+                }
+                lastItemsByIdentity[item.identity] = item
+            }
+            onChange?(
+                TaskbarState(
+                    displayIdentifier: displayIdentifier,
+                    isAccessibilityTrusted: trusted,
+                    spaceIdentifier: spaceIdentifier,
+                    isFullScreenActive: isFullScreenActive,
+                    applications: items
+                )
             )
         }
+    }
 
+    private func taskbarItems(
+        for context: DisplaySpaceContext,
+        windowsByIdentity: [ApplicationIdentity: [WindowSnapshot]],
+        runningByIdentity: [ApplicationIdentity: [NSRunningApplication]],
+        runningIdentityOrder: [ApplicationIdentity],
+        pinnedRecords: [PinnedApplicationRecord],
+        globalLaunchIdentityOrder: [ApplicationIdentity]
+    ) -> [TaskbarApplicationItem] {
         let visibleRunningIdentityOrder = runningIdentityOrder.filter {
             windowsByIdentity[$0]?.isEmpty == false
         }
         let visibleRunningByIdentity = runningByIdentity.filter {
             windowsByIdentity[$0.key]?.isEmpty == false
         }
-        runningApplicationsByIdentity = runningByIdentity
-
-        let launchIdentityOrder = launchIndicatorStartedAtByIdentity
-            .sorted { $0.value < $1.value }
-            .map(\.key)
+        let launchIdentityOrder = globalLaunchIdentityOrder.filter {
+            launchDisplayByIdentity[$0] == context.displayIdentifier
+        }
         let taskbarRunningIdentityOrder = (
             visibleRunningIdentityOrder + launchIdentityOrder
         ).reduce(into: [ApplicationIdentity]()) { identities, identity in
@@ -235,20 +335,24 @@ final class WindowMonitor {
             }
         }
 
-        let pinnedRecords = pinnedStore.records
         let pinnedIdentities = Set(pinnedRecords.map(\.identity))
-        let launchingIdentities = Set(launchIndicatorStartedAtByIdentity.keys)
+        let launchingIdentities = Set(launchIdentityOrder)
         let validIdentities = Set(visibleRunningIdentityOrder)
             .union(pinnedIdentities)
             .union(launchingIdentities)
+        var applicationOrder = applicationOrdersByContext[context] ?? []
         applicationOrder.removeAll { !validIdentities.contains($0) }
 
         if applicationOrder.isEmpty {
             applicationOrder = pinnedRecords.map(\.identity)
             let savedOrder = UserDefaults.standard.stringArray(
-                forKey: savedGroupOrderKey(for: activeSpaceIdentifier)
+                forKey: savedGroupOrderKey(for: context)
+            ) ?? UserDefaults.standard.stringArray(
+                forKey: legacySavedGroupOrderKey(for: context.spaceIdentifier)
             ) ?? UserDefaults.standard.stringArray(forKey: savedGroupOrderKey) ?? []
-            let legacyOrder = UserDefaults.standard.stringArray(forKey: legacyGroupOrderKey) ?? []
+            let legacyOrder = UserDefaults.standard.stringArray(
+                forKey: legacyGroupOrderKey
+            ) ?? []
             let savedIndexes = Dictionary(
                 uniqueKeysWithValues: savedOrder.enumerated().map { ($0.element, $0.offset) }
             )
@@ -275,7 +379,10 @@ final class WindowMonitor {
         } else {
             for (index, record) in pinnedRecords.enumerated()
             where !applicationOrder.contains(record.identity) {
-                applicationOrder.insert(record.identity, at: min(index, applicationOrder.count))
+                applicationOrder.insert(
+                    record.identity,
+                    at: min(index, applicationOrder.count)
+                )
             }
 
             let newRunningIdentities = taskbarRunningIdentityOrder
@@ -286,18 +393,22 @@ final class WindowMonitor {
                 }
             applicationOrder.append(contentsOf: newRunningIdentities)
         }
+        applicationOrdersByContext[context] = applicationOrder
 
         let pinnedByIdentity = Dictionary(
             uniqueKeysWithValues: pinnedRecords.map { ($0.identity, $0) }
         )
-        let items = applicationOrder.compactMap { orderedIdentity -> TaskbarApplicationItem? in
+        return applicationOrder.compactMap { orderedIdentity in
             let isLaunching = launchIndicatorStartedAtByIdentity[orderedIdentity] != nil
+                && launchDisplayByIdentity[orderedIdentity] == context.displayIdentifier
             let applications = isLaunching
                 ? (runningByIdentity[orderedIdentity] ?? [])
                 : (visibleRunningByIdentity[orderedIdentity] ?? [])
             let launchApplication = launchApplicationsByIdentity[orderedIdentity]
             let pinnedRecord = pinnedByIdentity[orderedIdentity]
-            guard !applications.isEmpty || pinnedRecord != nil || isLaunching else { return nil }
+            guard !applications.isEmpty || pinnedRecord != nil || isLaunching else {
+                return nil
+            }
 
             let currentIdentity = applications.first.flatMap(identity(for:))
                 ?? launchApplication.flatMap(identity(for:))
@@ -314,7 +425,6 @@ final class WindowMonitor {
             let icon = applications.first?.icon?.copy() as? NSImage
                 ?? launchApplication?.icon?.copy() as? NSImage
                 ?? applicationURL.map { NSWorkspace.shared.icon(forFile: $0.path) }
-            let windows = windowsByIdentity[orderedIdentity] ?? []
 
             return TaskbarApplicationItem(
                 identity: currentIdentity,
@@ -324,51 +434,65 @@ final class WindowMonitor {
                 isPinned: pinnedRecord != nil,
                 isLaunching: isLaunching,
                 runningApplications: applications,
-                windows: windows
+                windows: windowsByIdentity[orderedIdentity] ?? []
             )
         }
-        lastItemsByIdentity = Dictionary(uniqueKeysWithValues: items.map { ($0.identity, $0) })
-        onChange?(
-            TaskbarState(
-                isAccessibilityTrusted: trusted,
-                spaceIdentifier: activeSpaceIdentifier,
-                isFullScreenActive: isFullScreenActive,
-                applications: items
-            )
-        )
     }
 
     func requestPermission() {
         provider.requestPermission()
     }
 
-    func updateReservedWorkArea(_ workArea: ReservedWorkArea?) {
-        guard reservedWorkArea != workArea else { return }
-        reservedWorkArea = workArea
+    func updateReservedWorkArea(
+        _ workArea: ReservedWorkArea?,
+        for displayIdentifier: CGDirectDisplayID
+    ) {
+        guard reservedWorkAreasByDisplay[displayIdentifier] != workArea else {
+            return
+        }
+        if let workArea {
+            reservedWorkAreasByDisplay[displayIdentifier] = workArea
+        } else {
+            reservedWorkAreasByDisplay.removeValue(forKey: displayIdentifier)
+            activeSpaceIdentifiersByDisplay.removeValue(forKey: displayIdentifier)
+            currentWindowsByDisplay.removeValue(forKey: displayIdentifier)
+        }
         scheduleAccessibilityRefresh()
         scheduleAccessibilityRefreshRetries()
     }
 
-    func pinApplication(_ identity: ApplicationIdentity) {
+    func pinApplication(
+        _ identity: ApplicationIdentity,
+        on displayIdentifier: CGDirectDisplayID
+    ) {
         guard let item = lastItemsByIdentity[identity] else { return }
         pinnedStore.pin(identity: item.identity, displayName: item.displayName)
-        if !applicationOrder.contains(item.identity) {
-            applicationOrder.append(item.identity)
+        if let context = context(for: displayIdentifier) {
+            var applicationOrder = applicationOrdersByContext[context] ?? []
+            if !applicationOrder.contains(item.identity) {
+                applicationOrder.append(item.identity)
+            }
+            applicationOrdersByContext[context] = applicationOrder
+            saveApplicationGroupOrder(for: context)
         }
-        saveApplicationGroupOrder()
         refresh()
     }
 
     func unpinApplication(_ identity: ApplicationIdentity) {
         pinnedStore.unpin(identity)
         if runningApplicationsByIdentity[identity]?.isEmpty != false {
-            applicationOrder.removeAll { $0 == identity }
+            for context in Array(applicationOrdersByContext.keys) {
+                applicationOrdersByContext[context]?.removeAll { $0 == identity }
+                saveApplicationGroupOrder(for: context)
+            }
         }
-        saveApplicationGroupOrder()
         refresh()
     }
 
-    func launchApplication(_ identity: ApplicationIdentity) {
+    func launchApplication(
+        _ identity: ApplicationIdentity,
+        on displayIdentifier: CGDirectDisplayID
+    ) {
         logger.notice(
             "Pinned launch requested for \(identity.identifier, privacy: .public)"
         )
@@ -376,16 +500,18 @@ final class WindowMonitor {
             .first(where: { !$0.isTerminated }) {
             if let requestedAt = pendingLaunchesByIdentity[identity],
                Date().timeIntervalSince(requestedAt) < pendingLaunchTimeout {
+                beginWindowPlacement(
+                    for: identity,
+                    on: displayIdentifier,
+                    allowsExistingWindowFallback: true
+                )
                 logger.debug(
                     "Launch is still pending for \(identity.identifier, privacy: .public)"
-                )
-                runningApplication.activate(
-                    options: [.activateAllWindows, .activateIgnoringOtherApps]
                 )
                 return
             }
 
-            if currentSpaceWindowsByIdentity[identity]?.isEmpty == false {
+            if currentWindowsByDisplay[displayIdentifier]?[identity]?.isEmpty == false {
                 logger.notice(
                     "Activating existing window for \(identity.identifier, privacy: .public), pid=\(runningApplication.processIdentifier)"
                 )
@@ -396,13 +522,22 @@ final class WindowMonitor {
                 logger.notice(
                     "Running application has no window on the active Space: \(identity.identifier, privacy: .public), pid=\(runningApplication.processIdentifier)"
                 )
-                openNewWindow(identity)
+                requestNewWindow(
+                    identity,
+                    on: displayIdentifier,
+                    allowsExistingWindowFallback: true
+                )
             }
             return
         }
 
         if let requestedAt = pendingLaunchesByIdentity[identity],
            Date().timeIntervalSince(requestedAt) < pendingLaunchTimeout {
+            beginWindowPlacement(
+                for: identity,
+                on: displayIdentifier,
+                allowsExistingWindowFallback: false
+            )
             logger.debug(
                 "Ignoring duplicate cold launch request for \(identity.identifier, privacy: .public)"
             )
@@ -419,7 +554,17 @@ final class WindowMonitor {
 
         let requestedAt = Date()
         pendingLaunchesByIdentity[identity] = requestedAt
-        beginLaunchIndicator(for: identity, startedAt: requestedAt)
+        coldLaunchWindowCommandByIdentity.removeValue(forKey: identity)
+        beginWindowPlacement(
+            for: identity,
+            on: displayIdentifier,
+            allowsExistingWindowFallback: false
+        )
+        beginLaunchIndicator(
+            for: identity,
+            displayIdentifier: displayIdentifier,
+            startedAt: requestedAt
+        )
         refresh()
         logger.notice(
             "Cold launch requested for \(identity.identifier, privacy: .public) at \(applicationURL.path, privacy: .public)"
@@ -455,6 +600,7 @@ final class WindowMonitor {
                 }
                 self.pendingLaunchesByIdentity.removeValue(forKey: identity)
                 self.observedLaunchProcessByIdentity.removeValue(forKey: identity)
+                self.cancelWindowPlacement(for: identity)
                 self.clearLaunchIndicator(for: identity)
                 self.refresh()
                 self.logger.error(
@@ -476,48 +622,13 @@ final class WindowMonitor {
         } catch {
             pendingLaunchesByIdentity.removeValue(forKey: identity)
             observedLaunchProcessByIdentity.removeValue(forKey: identity)
+            cancelWindowPlacement(for: identity)
             clearLaunchIndicator(for: identity)
             refresh()
             logger.error(
                 "Desktop launcher could not start for \(identity.identifier, privacy: .public): \(error.localizedDescription, privacy: .public)"
             )
             NSSound.beep()
-        }
-    }
-
-    private func scheduleLaunchProcessObservation(
-        identity: ApplicationIdentity,
-        requestedAt: Date
-    ) {
-        DispatchQueue.main.asyncAfter(
-            deadline: .now() + launchProcessObservationTimeout
-        ) { [weak self] in
-            guard let self,
-                  self.pendingLaunchesByIdentity[identity] == requestedAt else {
-                return
-            }
-
-            if let application = NSWorkspace.shared.runningApplications.first(where: {
-                !$0.isTerminated && self.identity(for: $0) == identity
-            }) {
-                self.observedLaunchProcessByIdentity[identity] = application.processIdentifier
-                self.logger.notice(
-                    "Cold-launch process observed for \(identity.identifier, privacy: .public), pid=\(application.processIdentifier)"
-                )
-                application.activate(
-                    options: [.activateAllWindows, .activateIgnoringOtherApps]
-                )
-                self.refresh()
-                return
-            }
-
-            self.pendingLaunchesByIdentity.removeValue(forKey: identity)
-            self.observedLaunchProcessByIdentity.removeValue(forKey: identity)
-            self.clearLaunchIndicator(for: identity)
-            self.refresh()
-            self.logger.error(
-                "No application process appeared after clean launch for \(identity.identifier, privacy: .public)"
-            )
         }
     }
 
@@ -544,33 +655,157 @@ final class WindowMonitor {
         return environment
     }
 
-    func openNewWindow(_ identity: ApplicationIdentity) {
+    private func scheduleLaunchProcessObservation(
+        identity: ApplicationIdentity,
+        requestedAt: Date
+    ) {
+        DispatchQueue.main.asyncAfter(
+            deadline: .now() + launchProcessObservationTimeout
+        ) { [weak self] in
+            guard let self,
+                  self.pendingLaunchesByIdentity[identity] == requestedAt else {
+                return
+            }
+
+            if let application = NSWorkspace.shared.runningApplications.first(where: {
+                !$0.isTerminated && self.identity(for: $0) == identity
+            }) {
+                self.observedLaunchProcessByIdentity[identity] = application.processIdentifier
+                self.logger.notice(
+                    "Cold-launch process observed for \(identity.identifier, privacy: .public), pid=\(application.processIdentifier)"
+                )
+                application.activate(
+                    options: [.activateAllWindows, .activateIgnoringOtherApps]
+                )
+                self.scheduleColdLaunchWindowRecovery(
+                    identity: identity,
+                    application: application,
+                    requestedAt: requestedAt
+                )
+                self.refresh()
+                return
+            }
+
+            self.pendingLaunchesByIdentity.removeValue(forKey: identity)
+            self.observedLaunchProcessByIdentity.removeValue(forKey: identity)
+            self.cancelWindowPlacement(for: identity)
+            self.clearLaunchIndicator(for: identity)
+            self.refresh()
+            self.logger.error(
+                "No application process appeared after clean launch for \(identity.identifier, privacy: .public)"
+            )
+        }
+    }
+
+    private func scheduleColdLaunchWindowRecovery(
+        identity: ApplicationIdentity,
+        application: NSRunningApplication,
+        requestedAt: Date
+    ) {
+        let retryDelays: [TimeInterval] = [0.8, 1.5, 2.5, 4.0]
+        for (index, delay) in retryDelays.enumerated() {
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+                guard let self,
+                      self.isStarted,
+                      self.pendingLaunchesByIdentity[identity] == requestedAt,
+                      self.coldLaunchWindowCommandByIdentity[identity] != requestedAt,
+                      !application.isTerminated else {
+                    return
+                }
+
+                self.refresh()
+                guard self.currentWindowIdentifiersByIdentity[identity]?.isEmpty
+                        != false else {
+                    return
+                }
+                guard application.isFinishedLaunching else { return }
+
+                if self.performNewWindowMenuAction(
+                    for: application,
+                    beforePress: {}
+                ) {
+                    self.coldLaunchWindowCommandByIdentity[identity] = requestedAt
+                    self.logger.notice(
+                        "Requested first window after windowless cold launch for \(identity.identifier, privacy: .public), pid=\(application.processIdentifier)"
+                    )
+                    self.scheduleAccessibilityRefreshRetries()
+                    return
+                }
+
+                guard index == retryDelays.count - 1 else { return }
+                self.coldLaunchWindowCommandByIdentity[identity] = requestedAt
+                application.activate(options: [.activateIgnoringOtherApps])
+                self.postStandardNewWindowShortcut(
+                    to: application.processIdentifier
+                )
+                self.logger.notice(
+                    "Used New Window shortcut after windowless cold launch for \(identity.identifier, privacy: .public), pid=\(application.processIdentifier)"
+                )
+            }
+        }
+    }
+
+    func openNewWindow(
+        _ identity: ApplicationIdentity,
+        on displayIdentifier: CGDirectDisplayID
+    ) {
+        requestNewWindow(
+            identity,
+            on: displayIdentifier,
+            allowsExistingWindowFallback: false
+        )
+    }
+
+    private func requestNewWindow(
+        _ identity: ApplicationIdentity,
+        on displayIdentifier: CGDirectDisplayID,
+        allowsExistingWindowFallback: Bool
+    ) {
         guard let runningApplication = runningApplicationsByIdentity[identity]?
             .first(where: { !$0.isTerminated }) else {
-            launchApplication(identity)
+            launchApplication(identity, on: displayIdentifier)
             return
         }
 
-        if performNewWindowMenuAction(for: runningApplication) {
+        beginWindowPlacement(
+            for: identity,
+            on: displayIdentifier,
+            allowsExistingWindowFallback: false
+        )
+
+        if performNewWindowMenuAction(
+            for: runningApplication,
+            beforePress: { [weak self] in
+                self?.suppressWindowPresentation(for: identity)
+            }
+        ) {
             logger.notice(
                 "New Window menu action accepted for \(identity.identifier, privacy: .public), pid=\(runningApplication.processIdentifier)"
             )
             return
         }
+        releaseWindowPresentationSuppression(for: identity)
 
-        runningApplication.activate(options: [.activateIgnoringOtherApps])
-        openNewWindowWhenApplicationIsFrontmost(
-            identity: identity,
-            application: runningApplication,
-            remainingAttempts: 20
+        if allowsExistingWindowFallback,
+           var pending = pendingWindowPlacementsByIdentity[identity] {
+            pending.allowsExistingWindowFallback = true
+            pendingWindowPlacementsByIdentity[identity] = pending
+        }
+
+        suppressWindowPresentation(for: identity)
+        postStandardNewWindowShortcut(
+            to: runningApplication.processIdentifier
         )
     }
 
     func moveApplicationGroup(
         from sourceIdentity: ApplicationIdentity,
         relativeTo targetIdentity: ApplicationIdentity,
-        insertAfter: Bool
+        insertAfter: Bool,
+        on displayIdentifier: CGDirectDisplayID
     ) {
+        guard let context = context(for: displayIdentifier) else { return }
+        var applicationOrder = applicationOrdersByContext[context] ?? []
         guard sourceIdentity != targetIdentity,
               let sourceIndex = applicationOrder.firstIndex(of: sourceIdentity) else {
             return
@@ -579,12 +814,14 @@ final class WindowMonitor {
         applicationOrder.remove(at: sourceIndex)
         guard let targetIndex = applicationOrder.firstIndex(of: targetIdentity) else {
             applicationOrder.insert(sourceIdentity, at: min(sourceIndex, applicationOrder.count))
+            applicationOrdersByContext[context] = applicationOrder
             return
         }
 
         let insertionIndex = targetIndex + (insertAfter ? 1 : 0)
         applicationOrder.insert(sourceIdentity, at: insertionIndex)
-        saveApplicationGroupOrder()
+        applicationOrdersByContext[context] = applicationOrder
+        saveApplicationGroupOrder(for: context)
         refresh()
     }
 
@@ -629,10 +866,15 @@ final class WindowMonitor {
     private func beginLaunchIndicator(
         for identity: ApplicationIdentity,
         application: NSRunningApplication? = nil,
+        displayIdentifier: CGDirectDisplayID? = nil,
         startedAt: Date = Date()
     ) {
         if launchIndicatorStartedAtByIdentity[identity] == nil {
             launchIndicatorStartedAtByIdentity[identity] = startedAt
+        }
+        if launchDisplayByIdentity[identity] == nil,
+           let displayIdentifier = displayIdentifier ?? preferredDisplayIdentifier() {
+            launchDisplayByIdentity[identity] = displayIdentifier
         }
         if let application {
             launchApplicationsByIdentity[identity] = application
@@ -642,6 +884,257 @@ final class WindowMonitor {
     private func clearLaunchIndicator(for identity: ApplicationIdentity) {
         launchIndicatorStartedAtByIdentity.removeValue(forKey: identity)
         launchApplicationsByIdentity.removeValue(forKey: identity)
+        launchDisplayByIdentity.removeValue(forKey: identity)
+    }
+
+    private func beginWindowPlacement(
+        for identity: ApplicationIdentity,
+        on displayIdentifier: CGDirectDisplayID,
+        allowsExistingWindowFallback: Bool
+    ) {
+        let requestedAt: Date
+        if var pending = pendingWindowPlacementsByIdentity[identity],
+           Date().timeIntervalSince(pending.requestedAt) < windowPlacementTimeout {
+            pending.displayIdentifier = displayIdentifier
+            pending.allowsExistingWindowFallback =
+                pending.allowsExistingWindowFallback || allowsExistingWindowFallback
+            pendingWindowPlacementsByIdentity[identity] = pending
+            requestedAt = pending.requestedAt
+        } else {
+            let pending = PendingWindowPlacement(
+                displayIdentifier: displayIdentifier,
+                requestedAt: Date(),
+                existingWindowIdentifiers: currentWindowIdentifiersByIdentity[identity] ?? [],
+                allowsExistingWindowFallback: allowsExistingWindowFallback,
+                presentationIsSuppressed: false
+            )
+            pendingWindowPlacementsByIdentity[identity] = pending
+            requestedAt = pending.requestedAt
+        }
+        scheduleAccessibilityRefreshRetries()
+        scheduleWindowPlacementRefreshes(
+            for: identity,
+            requestedAt: requestedAt
+        )
+    }
+
+    private func cancelWindowPlacement(for identity: ApplicationIdentity) {
+        guard let placement = pendingWindowPlacementsByIdentity.removeValue(
+            forKey: identity
+        ) else {
+            return
+        }
+        if placement.presentationIsSuppressed {
+            provider.endWindowPresentationSuppression()
+        }
+    }
+
+    private func suppressWindowPresentation(for identity: ApplicationIdentity) {
+        guard var placement = pendingWindowPlacementsByIdentity[identity],
+              !placement.presentationIsSuppressed,
+              provider.beginWindowPresentationSuppression() else {
+            return
+        }
+        placement.presentationIsSuppressed = true
+        pendingWindowPlacementsByIdentity[identity] = placement
+
+        // An already-running application normally creates a new window within
+        // a few frames. Probe densely so presentation resumes as soon as that
+        // window has its final display, without changing the app's launch time.
+        for delay in [0.016, 0.04, 0.08, 0.16, 0.25] {
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+                guard let self,
+                      self.isStarted,
+                      self.pendingWindowPlacementsByIdentity[identity]?
+                        .requestedAt == placement.requestedAt,
+                      self.pendingWindowPlacementsByIdentity[identity]?
+                        .presentationIsSuppressed == true else {
+                    return
+                }
+                self.refresh()
+            }
+        }
+
+        // Never leave WindowServer presentation held if an application ignores
+        // its New Window command or takes an unexpectedly different code path.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
+            guard let self,
+                  self.pendingWindowPlacementsByIdentity[identity]?
+                    .requestedAt == placement.requestedAt else {
+                return
+            }
+            self.releaseWindowPresentationSuppression(for: identity)
+        }
+    }
+
+    private func releaseWindowPresentationSuppression(
+        for identity: ApplicationIdentity
+    ) {
+        guard var placement = pendingWindowPlacementsByIdentity[identity],
+              placement.presentationIsSuppressed else {
+            return
+        }
+        placement.presentationIsSuppressed = false
+        pendingWindowPlacementsByIdentity[identity] = placement
+        provider.endWindowPresentationSuppression()
+    }
+
+    private func scheduleWindowPlacementRefreshes(
+        for identity: ApplicationIdentity,
+        requestedAt: Date
+    ) {
+        for delay in [0.85, 1.5, 3.0] {
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+                guard let self,
+                      self.isStarted,
+                      self.pendingWindowPlacementsByIdentity[identity]?.requestedAt
+                        == requestedAt else {
+                    return
+                }
+                self.refresh()
+            }
+        }
+    }
+
+    private func applyPendingWindowPlacements(
+        to windowsByIdentity: [ApplicationIdentity: [WindowSnapshot]]
+    ) {
+        let now = Date()
+        let connectedDisplayIdentifiers = Set(orderedDisplayIdentifiers())
+        for (identity, placement) in pendingWindowPlacementsByIdentity {
+            guard now.timeIntervalSince(placement.requestedAt) < windowPlacementTimeout,
+                  connectedDisplayIdentifiers.contains(placement.displayIdentifier),
+                  let targetFrame = targetWindowFrame(
+                    for: placement.displayIdentifier
+                  ) else {
+                cancelWindowPlacement(for: identity)
+                continue
+            }
+
+            let windows = windowsByIdentity[identity] ?? []
+            let newlyCreatedWindows = windows.filter { window in
+                guard let identifier = provider.windowIdentifier(for: window.element) else {
+                    return false
+                }
+                return !placement.existingWindowIdentifiers.contains(identifier)
+            }
+            var candidate = newlyCreatedWindows.first(where: { $0.isFocused })
+                ?? newlyCreatedWindows.last
+            if candidate == nil,
+               placement.allowsExistingWindowFallback,
+               now.timeIntervalSince(placement.requestedAt)
+                >= existingWindowPlacementFallbackDelay {
+                candidate = windows.first(where: { $0.isFocused })
+                    ?? windows.last
+            }
+            guard let candidate else { continue }
+
+            let isOnTargetDisplay = candidate.displayIdentifier
+                == placement.displayIdentifier
+            let wasPlaced = isOnTargetDisplay || provider.moveWindow(
+                candidate,
+                to: targetFrame,
+                on: placement.displayIdentifier
+            )
+            guard wasPlaced else { continue }
+
+            cancelWindowPlacement(for: identity)
+            activateWindow(candidate)
+            logger.notice(
+                "Placed window for \(identity.identifier, privacy: .public) on display \(placement.displayIdentifier)"
+            )
+            scheduleAccessibilityRefresh()
+        }
+    }
+
+    private func targetWindowFrame(
+        for displayIdentifier: CGDirectDisplayID
+    ) -> CGRect? {
+        if let usableFrame = reservedWorkAreasByDisplay[displayIdentifier]?.usableFrame {
+            return usableFrame
+        }
+        return NSScreen.screens.first {
+            self.displayIdentifier(for: $0) == displayIdentifier
+        }?.visibleFrame
+    }
+
+    private func activateWindow(_ window: WindowSnapshot) {
+        let applicationElement = AXUIElementCreateApplication(
+            window.application.processIdentifier
+        )
+        if window.isMinimized {
+            _ = AXUIElementSetAttributeValue(
+                window.element,
+                kAXMinimizedAttribute as CFString,
+                kCFBooleanFalse
+            )
+        }
+        _ = AXUIElementSetAttributeValue(
+            applicationElement,
+            kAXFocusedWindowAttribute as CFString,
+            window.element
+        )
+        _ = AXUIElementSetAttributeValue(
+            window.element,
+            kAXMainAttribute as CFString,
+            kCFBooleanTrue
+        )
+        _ = AXUIElementSetAttributeValue(
+            window.element,
+            kAXFocusedAttribute as CFString,
+            kCFBooleanTrue
+        )
+        _ = AXUIElementPerformAction(
+            window.element,
+            kAXRaiseAction as CFString
+        )
+        _ = window.application.unhide()
+        _ = window.application.activate(options: [.activateIgnoringOtherApps])
+    }
+
+    private func orderedDisplayIdentifiers() -> [CGDirectDisplayID] {
+        let screenIdentifiers = NSScreen.screens.compactMap(displayIdentifier(for:))
+        let additionalIdentifiers = reservedWorkAreasByDisplay.keys.filter {
+            !screenIdentifiers.contains($0)
+        }
+        return screenIdentifiers + additionalIdentifiers.sorted()
+    }
+
+    private func preferredDisplayIdentifier() -> CGDirectDisplayID? {
+        let mouseLocation = NSEvent.mouseLocation
+        let screen = NSScreen.screens.first {
+            NSMouseInRect(mouseLocation, $0.frame, false)
+        } ?? NSScreen.main ?? NSScreen.screens.first
+        return screen.flatMap(displayIdentifier(for:))
+    }
+
+    private func displayIdentifier(for screen: NSScreen) -> CGDirectDisplayID? {
+        let key = NSDeviceDescriptionKey("NSScreenNumber")
+        return (screen.deviceDescription[key] as? NSNumber)?.uint32Value
+    }
+
+    private func context(
+        for displayIdentifier: CGDirectDisplayID
+    ) -> DisplaySpaceContext? {
+        guard let spaceIdentifier = activeSpaceIdentifiersByDisplay[displayIdentifier] else {
+            return nil
+        }
+        return DisplaySpaceContext(
+            displayIdentifier: displayIdentifier,
+            spaceIdentifier: spaceIdentifier
+        )
+    }
+
+    private func window(
+        _ snapshot: WindowSnapshot,
+        belongsTo displayIdentifier: CGDirectDisplayID,
+        among displayIdentifiers: [CGDirectDisplayID]
+    ) -> Bool {
+        if let windowDisplayIdentifier = snapshot.displayIdentifier {
+            return windowDisplayIdentifier == displayIdentifier
+        }
+        return displayIdentifiers.count == 1
+            && displayIdentifiers.first == displayIdentifier
     }
 
     private func stableWindows(for application: NSRunningApplication) -> [WindowSnapshot] {
@@ -668,7 +1161,8 @@ final class WindowMonitor {
     }
 
     private func performNewWindowMenuAction(
-        for application: NSRunningApplication
+        for application: NSRunningApplication,
+        beforePress: () -> Void
     ) -> Bool {
         let applicationElement = AXUIElementCreateApplication(application.processIdentifier)
         guard let menuBar: AXUIElement = copyAccessibilityAttribute(
@@ -697,10 +1191,12 @@ final class WindowMonitor {
                 from: menuItem
             ) ?? true
             guard isEnabled else { continue }
-            return AXUIElementPerformAction(
+            beforePress()
+            let result = AXUIElementPerformAction(
                 menuItem,
                 kAXPressAction as CFString
-            ) == .success
+            )
+            return result == .success
         }
         return false
     }
@@ -751,41 +1247,7 @@ final class WindowMonitor {
         return value as? T
     }
 
-    private func openNewWindowWhenApplicationIsFrontmost(
-        identity: ApplicationIdentity,
-        application: NSRunningApplication,
-        remainingAttempts: Int
-    ) {
-        guard !application.isTerminated else {
-            launchApplication(identity)
-            return
-        }
-
-        let isFrontmost = NSWorkspace.shared.frontmostApplication?.processIdentifier
-            == application.processIdentifier
-        guard isFrontmost else {
-            guard remainingAttempts > 0 else {
-                NSSound.beep()
-                return
-            }
-            application.activate(options: [.activateIgnoringOtherApps])
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.025) { [weak self, weak application] in
-                guard let self, let application else { return }
-                self.openNewWindowWhenApplicationIsFrontmost(
-                    identity: identity,
-                    application: application,
-                    remainingAttempts: remainingAttempts - 1
-                )
-            }
-            return
-        }
-
-        if !performNewWindowMenuAction(for: application) {
-            postStandardNewWindowShortcut()
-        }
-    }
-
-    private func postStandardNewWindowShortcut() {
+    private func postStandardNewWindowShortcut(to processIdentifier: pid_t) {
         guard let source = CGEventSource(stateID: .hidSystemState),
               let keyDown = CGEvent(
                 keyboardEventSource: source,
@@ -802,8 +1264,8 @@ final class WindowMonitor {
         }
         keyDown.flags = .maskCommand
         keyUp.flags = .maskCommand
-        keyDown.post(tap: .cghidEventTap)
-        keyUp.post(tap: .cghidEventTap)
+        keyDown.postToPid(processIdentifier)
+        keyUp.postToPid(processIdentifier)
     }
 
     private func terminateWindowlessApplications(
@@ -833,14 +1295,17 @@ final class WindowMonitor {
                     identity
                 ] != nil
                 clearLaunchIndicator(for: identity)
+                coldLaunchWindowCommandByIdentity.removeValue(forKey: identity)
                 if wasTaskbarLaunch {
                     observedLaunchProcessByIdentity.removeValue(forKey: identity)
                     logger.notice(
                         "First window observed for \(identity.identifier, privacy: .public)"
                     )
-                    applications.first(where: { !$0.isTerminated })?.activate(
-                        options: [.activateAllWindows, .activateIgnoringOtherApps]
-                    )
+                    if pendingWindowPlacementsByIdentity[identity] == nil {
+                        applications.first(where: { !$0.isTerminated })?.activate(
+                            options: [.activateAllWindows, .activateIgnoringOtherApps]
+                        )
+                    }
                 } else if wasShowingLaunchIndicator {
                     logger.notice(
                         "First externally launched window observed for \(identity.identifier, privacy: .public)"
@@ -906,6 +1371,8 @@ final class WindowMonitor {
                 forKey: identity
             ) != nil
             observedLaunchProcessByIdentity.removeValue(forKey: identity)
+            coldLaunchWindowCommandByIdentity.removeValue(forKey: identity)
+            cancelWindowPlacement(for: identity)
             clearLaunchIndicator(for: identity)
             if wasTaskbarLaunch {
                 logger.warning(
@@ -946,14 +1413,68 @@ final class WindowMonitor {
         }
 
         scheduleAccessibilityRefresh()
-        if notificationName == (kAXWindowCreatedNotification as String) {
+        let windowCreationNotifications = [
+            kAXCreatedNotification as String,
+            kAXWindowCreatedNotification as String
+        ]
+        if windowCreationNotifications.contains(notificationName) {
+            positionNewlyCreatedWindowIfNeeded(element)
             scheduleAccessibilityRefreshRetries()
         }
     }
 
+    private func positionNewlyCreatedWindowIfNeeded(_ element: AXUIElement) {
+        var processIdentifier = pid_t.zero
+        guard AXUIElementGetPid(element, &processIdentifier) == .success,
+              let application = NSRunningApplication(
+                processIdentifier: processIdentifier
+              ),
+              let identity = identity(for: application),
+              let placement = pendingWindowPlacementsByIdentity[identity] else {
+            return
+        }
+        logger.notice(
+            "Accessibility creation event matched pending placement for \(identity.identifier, privacy: .public)"
+        )
+        if provider.positionNewlyCreatedWindowBeforePresentation(
+            element,
+            on: placement.displayIdentifier
+        ) {
+            logger.notice(
+                "Atomically positioned newly created window for \(identity.identifier, privacy: .public) on display \(placement.displayIdentifier)"
+            )
+            scheduleAccessibilityRefresh()
+            return
+        }
+
+        guard let targetFrame = targetWindowFrame(
+                for: placement.displayIdentifier
+              ) else {
+            logger.error(
+                "No target frame for early window placement on display \(placement.displayIdentifier)"
+            )
+            return
+        }
+        guard provider.moveNewlyCreatedWindow(
+                element,
+                to: targetFrame,
+                on: placement.displayIdentifier
+              ) else {
+            logger.debug(
+                "Created accessibility element was not yet a movable application window for \(identity.identifier, privacy: .public)"
+            )
+            return
+        }
+        logger.notice(
+            "Positioned newly created window for \(identity.identifier, privacy: .public) before taskbar rendering on display \(placement.displayIdentifier)"
+        )
+        scheduleAccessibilityRefresh()
+    }
+
     private func enforceReservedWorkArea(
         on windows: [WindowSnapshot],
-        reservedWorkArea: ReservedWorkArea
+        reservedWorkArea: ReservedWorkArea,
+        activeSpaceIdentifier: DesktopSpaceProvider.SpaceIdentifier
     ) {
         guard reservedWorkArea.isEnabled,
               !primaryMouseButtonIsPressed else {
@@ -1030,47 +1551,55 @@ final class WindowMonitor {
         }
 
         for application in applications {
-            let processID = application.processIdentifier
-            guard accessibilityObservers[processID] == nil else { continue }
-
-            var createdObserver: AXObserver?
-            guard AXObserverCreate(
-                processID,
-                windowMonitorAccessibilityCallback,
-                &createdObserver
-            ) == .success,
-            let observer = createdObserver else {
-                continue
-            }
-
-            let applicationElement = AXUIElementCreateApplication(processID)
-            let refcon = Unmanaged.passUnretained(self).toOpaque()
-            let notifications = [
-                kAXWindowCreatedNotification as CFString,
-                kAXFocusedWindowChangedNotification as CFString,
-                kAXMainWindowChangedNotification as CFString
-            ]
-            var registered = false
-            for notification in notifications {
-                let result = AXObserverAddNotification(
-                    observer,
-                    applicationElement,
-                    notification,
-                    refcon
-                )
-                if result == .success || result == .notificationAlreadyRegistered {
-                    registered = true
-                }
-            }
-            guard registered else { continue }
-
-            CFRunLoopAddSource(
-                CFRunLoopGetMain(),
-                AXObserverGetRunLoopSource(observer),
-                .commonModes
-            )
-            accessibilityObservers[processID] = observer
+            installAccessibilityObserverIfNeeded(for: application)
         }
+    }
+
+    private func installAccessibilityObserverIfNeeded(
+        for application: NSRunningApplication
+    ) {
+        guard provider.isTrusted else { return }
+        let processID = application.processIdentifier
+        guard accessibilityObservers[processID] == nil else { return }
+
+        var createdObserver: AXObserver?
+        guard AXObserverCreate(
+            processID,
+            windowMonitorAccessibilityCallback,
+            &createdObserver
+        ) == .success,
+        let observer = createdObserver else {
+            return
+        }
+
+        let applicationElement = AXUIElementCreateApplication(processID)
+        let refcon = Unmanaged.passUnretained(self).toOpaque()
+        let notifications = [
+            kAXCreatedNotification as CFString,
+            kAXWindowCreatedNotification as CFString,
+            kAXFocusedWindowChangedNotification as CFString,
+            kAXMainWindowChangedNotification as CFString
+        ]
+        var registered = false
+        for notification in notifications {
+            let result = AXObserverAddNotification(
+                observer,
+                applicationElement,
+                notification,
+                refcon
+            )
+            if result == .success || result == .notificationAlreadyRegistered {
+                registered = true
+            }
+        }
+        guard registered else { return }
+
+        CFRunLoopAddSource(
+            CFRunLoopGetMain(),
+            AXObserverGetRunLoopSource(observer),
+            .commonModes
+        )
+        accessibilityObservers[processID] = observer
     }
 
     private func registerWindowDestructionNotifications(
@@ -1113,14 +1642,21 @@ final class WindowMonitor {
         processIDs.forEach(removeAccessibilityObserver)
     }
 
-    private func saveApplicationGroupOrder() {
+    private func saveApplicationGroupOrder(for context: DisplaySpaceContext) {
+        let applicationOrder = applicationOrdersByContext[context] ?? []
         UserDefaults.standard.set(
             applicationOrder.map(\.identifier),
-            forKey: savedGroupOrderKey(for: activeSpaceIdentifier)
+            forKey: savedGroupOrderKey(for: context)
         )
     }
 
     private func savedGroupOrderKey(
+        for context: DisplaySpaceContext
+    ) -> String {
+        "\(savedGroupOrderKey).display.\(context.displayIdentifier).space.\(context.spaceIdentifier)"
+    }
+
+    private func legacySavedGroupOrderKey(
         for spaceIdentifier: DesktopSpaceProvider.SpaceIdentifier
     ) -> String {
         "\(savedGroupOrderKey).space.\(spaceIdentifier)"

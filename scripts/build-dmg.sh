@@ -4,7 +4,7 @@ set -euo pipefail
 
 script_dir="${0:A:h}"
 project_root="${script_dir:h}"
-build_root="$project_root/build/release"
+build_root="$(/usr/bin/mktemp -d /tmp/taskbars-release-build.XXXXXX)"
 derived_data="$build_root/DerivedData"
 staging_root="$build_root/dmg-root"
 dist_dir="$project_root/dist"
@@ -13,12 +13,11 @@ version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$proj
 versioned_dmg="$dist_dir/Taskbar-S-$version.dmg"
 stable_dmg="$dist_dir/Taskbar-S.dmg"
 
-if [[ "$build_root" != "$project_root"/build/release ]]; then
-  print -u2 "Refusing to clean an unexpected build directory: $build_root"
-  exit 1
-fi
+cleanup() {
+  /bin/rm -rf "$build_root"
+}
+trap cleanup EXIT
 
-/bin/rm -rf "$build_root"
 /bin/mkdir -p "$staging_root" "$dist_dir"
 
 /usr/bin/xcodebuild \

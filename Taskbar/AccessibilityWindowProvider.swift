@@ -1,5 +1,6 @@
 import AppKit
 import ApplicationServices
+import Darwin
 
 enum WindowConstraintResult {
     case unchanged
@@ -13,6 +14,29 @@ enum WindowConstraintPolicy {
 }
 
 final class AccessibilityWindowProvider {
+    private typealias MainConnectionFunction = @convention(c) () -> Int32
+    private typealias GetWindowBoundsFunction = @convention(c) (
+        Int32,
+        CGWindowID,
+        UnsafeMutablePointer<CGRect>
+    ) -> CGError
+    private typealias GetWindowAlphaFunction = @convention(c) (
+        Int32,
+        CGWindowID,
+        UnsafeMutablePointer<Float>
+    ) -> CGError
+    private typealias SetWindowAlphaFunction = @convention(c) (
+        Int32,
+        CGWindowID,
+        Float
+    ) -> CGError
+    private typealias MoveWindowFunction = @convention(c) (
+        Int32,
+        CGWindowID,
+        UnsafePointer<CGPoint>
+    ) -> CGError
+    private typealias UpdateFunction = @convention(c) (Int32) -> CGError
+
     private enum TaskbarWindowDisposition {
         case definite
         case ambiguous
@@ -58,7 +82,39 @@ final class AccessibilityWindowProvider {
     private var arrangementStates: [CGWindowID: WindowArrangementState] = [:]
     private var windowCatalog: [CGWindowID: WindowCatalogEntry]?
     private var ambiguousWindowStates: [AmbiguousWindowKey: AmbiguousWindowState] = [:]
-
+    private var windowServerUpdateSuppressionDepth = 0
+    private static let skyLightHandle = dlopen(
+        "/System/Library/PrivateFrameworks/SkyLight.framework/SkyLight",
+        RTLD_LAZY
+    )
+    private static let mainConnection: MainConnectionFunction? = loadFunction(
+        named: "SLSMainConnectionID",
+        as: MainConnectionFunction.self
+    )
+    private static let getWindowBounds: GetWindowBoundsFunction? = loadFunction(
+        named: "SLSGetWindowBounds",
+        as: GetWindowBoundsFunction.self
+    )
+    private static let getWindowAlpha: GetWindowAlphaFunction? = loadFunction(
+        named: "SLSGetWindowAlpha",
+        as: GetWindowAlphaFunction.self
+    )
+    private static let setWindowAlpha: SetWindowAlphaFunction? = loadFunction(
+        named: "SLSSetWindowAlpha",
+        as: SetWindowAlphaFunction.self
+    )
+    private static let moveWindow: MoveWindowFunction? = loadFunction(
+        named: "SLSMoveWindow",
+        as: MoveWindowFunction.self
+    )
+    private static let disableUpdates: UpdateFunction? = loadFunction(
+        named: "SLSDisableUpdate",
+        as: UpdateFunction.self
+    )
+    private static let reenableUpdates: UpdateFunction? = loadFunction(
+        named: "SLSReenableUpdate",
+        as: UpdateFunction.self
+    )
     var isTrusted: Bool {
         AXIsProcessTrusted()
     }
@@ -178,10 +234,13 @@ final class AccessibilityWindowProvider {
             let isFocused = application.isActive && (
                 focusedWindow.map { CFEqual($0, element) } ?? isMain
             )
+            let displayIdentifier = copyAppKitFrame(from: element)
+                .flatMap(displayIdentifier(forWindowFrame:))
 
             return WindowSnapshot(
                 element: element,
                 application: application,
+                displayIdentifier: displayIdentifier,
                 title: title,
                 isMinimized: minimized,
                 isFocused: isFocused,
@@ -224,6 +283,228 @@ final class AccessibilityWindowProvider {
 
     func windowIdentifier(for element: AXUIElement) -> CGWindowID? {
         desktopSpaces.windowIdentifier(for: element)
+    }
+
+    /// Holds WindowServer presentation while a running application creates a
+    /// new window. The application continues creating the window normally;
+    /// only the intermediate frame on its previously used display is omitted.
+    @discardableResult
+    func beginWindowPresentationSuppression() -> Bool {
+        if windowServerUpdateSuppressionDepth > 0 {
+            windowServerUpdateSuppressionDepth += 1
+            return true
+        }
+        guard let mainConnection = Self.mainConnection,
+              let disableUpdates = Self.disableUpdates,
+              disableUpdates(mainConnection()) == .success else {
+            return false
+        }
+        windowServerUpdateSuppressionDepth = 1
+        return true
+    }
+
+    func endWindowPresentationSuppression() {
+        guard windowServerUpdateSuppressionDepth > 0 else { return }
+        windowServerUpdateSuppressionDepth -= 1
+        guard windowServerUpdateSuppressionDepth == 0,
+              let mainConnection = Self.mainConnection,
+              let reenableUpdates = Self.reenableUpdates else {
+            return
+        }
+        _ = reenableUpdates(mainConnection())
+    }
+
+    /// Moves a just-created window using one WindowServer update batch. This
+    /// avoids the multiple AX round trips that otherwise allow the window's
+    /// saved frame to be presented on its previous display first.
+    func positionNewlyCreatedWindowBeforePresentation(
+        _ element: AXUIElement,
+        on targetDisplayIdentifier: CGDirectDisplayID
+    ) -> Bool {
+        guard let windowIdentifier = desktopSpaces.windowIdentifier(for: element),
+              let mainConnection = Self.mainConnection,
+              let getWindowBounds = Self.getWindowBounds,
+              let setWindowAlpha = Self.setWindowAlpha,
+              let moveWindow = Self.moveWindow else {
+            return false
+        }
+
+        let connection = mainConnection()
+        var currentBounds = CGRect.zero
+        guard getWindowBounds(
+            connection,
+            windowIdentifier,
+            &currentBounds
+        ) == .success,
+        currentBounds.width >= 80,
+        currentBounds.height >= 40 else {
+            return false
+        }
+
+        let targetDisplayBounds = CGDisplayBounds(targetDisplayIdentifier)
+        guard targetDisplayBounds.width > 0,
+              targetDisplayBounds.height > 0 else {
+            return false
+        }
+        let intersection = targetDisplayBounds.intersection(currentBounds)
+        let intersectionArea = max(0, intersection.width)
+            * max(0, intersection.height)
+        let windowArea = currentBounds.width * currentBounds.height
+        if intersectionArea >= windowArea * 0.5 {
+            return true
+        }
+
+        let targetSize = CGSize(
+            width: min(currentBounds.width, targetDisplayBounds.width),
+            height: min(currentBounds.height, targetDisplayBounds.height)
+        )
+        var targetOrigin = CGPoint(
+            x: targetDisplayBounds.midX - targetSize.width / 2,
+            y: targetDisplayBounds.midY - targetSize.height / 2
+        )
+        var originalAlpha: Float = 1
+        _ = Self.getWindowAlpha?(
+            connection,
+            windowIdentifier,
+            &originalAlpha
+        )
+
+        let updatesWereDisabled = beginWindowPresentationSuppression()
+        _ = setWindowAlpha(connection, windowIdentifier, 0)
+        let moveResult = moveWindow(
+            connection,
+            windowIdentifier,
+            &targetOrigin
+        )
+        _ = setWindowAlpha(
+            connection,
+            windowIdentifier,
+            originalAlpha
+        )
+        if updatesWereDisabled {
+            endWindowPresentationSuppression()
+        }
+        return moveResult == .success
+    }
+
+    func moveWindow(
+        _ window: WindowSnapshot,
+        to targetFrame: CGRect,
+        on targetDisplayIdentifier: CGDirectDisplayID
+    ) -> Bool {
+        guard window.isFullScreen != true else {
+            return false
+        }
+        if window.isMinimized {
+            _ = AXUIElementSetAttributeValue(
+                window.element,
+                kAXMinimizedAttribute as CFString,
+                kCFBooleanFalse
+            )
+        }
+
+        return moveWindowElement(
+            window.element,
+            to: targetFrame,
+            on: targetDisplayIdentifier
+        )
+    }
+
+    func moveNewlyCreatedWindow(
+        _ element: AXUIElement,
+        to targetFrame: CGRect,
+        on targetDisplayIdentifier: CGDirectDisplayID
+    ) -> Bool {
+        let isFullScreen: Bool? = copyAttribute(
+            "AXFullScreen" as CFString,
+            from: element
+        )
+        guard isFullScreen != true else { return false }
+        let isMinimized: Bool = copyAttribute(
+            kAXMinimizedAttribute as CFString,
+            from: element
+        ) ?? false
+        if isMinimized {
+            _ = AXUIElementSetAttributeValue(
+                element,
+                kAXMinimizedAttribute as CFString,
+                kCFBooleanFalse
+            )
+        }
+        return moveWindowElement(
+            element,
+            to: targetFrame,
+            on: targetDisplayIdentifier
+        )
+    }
+
+    private func moveWindowElement(
+        _ element: AXUIElement,
+        to targetFrame: CGRect,
+        on targetDisplayIdentifier: CGDirectDisplayID
+    ) -> Bool {
+        guard isStandardWindow(element),
+              let windowIdentifier = desktopSpaces.windowIdentifier(for: element),
+              let currentFrame = copyAppKitFrame(from: element),
+              currentFrame.width >= 80,
+              currentFrame.height >= 40,
+              targetFrame.width > 0,
+              targetFrame.height > 0,
+              isAttributeSettable(kAXPositionAttribute as CFString, on: element) else {
+            return false
+        }
+
+        var targetSize = currentFrame.size
+        targetSize.width = min(targetSize.width, targetFrame.width)
+        targetSize.height = min(targetSize.height, targetFrame.height)
+
+        let sourceFrame = NSScreen.screens.first {
+            displayIdentifier(for: $0)
+                == displayIdentifier(forWindowFrame: currentFrame)
+        }?.visibleFrame ?? currentFrame
+        let sourceHorizontalTravel = max(1, sourceFrame.width - currentFrame.width)
+        let sourceVerticalTravel = max(1, sourceFrame.height - currentFrame.height)
+        let horizontalRatio = min(
+            1,
+            max(0, (currentFrame.minX - sourceFrame.minX) / sourceHorizontalTravel)
+        )
+        let verticalRatio = min(
+            1,
+            max(0, (sourceFrame.maxY - currentFrame.maxY) / sourceVerticalTravel)
+        )
+        let targetHorizontalTravel = max(0, targetFrame.width - targetSize.width)
+        let targetVerticalTravel = max(0, targetFrame.height - targetSize.height)
+        let targetOrigin = CGPoint(
+            x: targetFrame.minX + targetHorizontalTravel * horizontalRatio,
+            y: targetFrame.maxY - targetSize.height - targetVerticalTravel * verticalRatio
+        )
+        let positionedFrame = CGRect(origin: targetOrigin, size: targetSize)
+
+        if !sizesApproximatelyEqual(targetSize, currentFrame.size) {
+            guard isAttributeSettable(kAXSizeAttribute as CFString, on: element),
+                  setSize(targetSize, on: element) == .success else {
+                return false
+            }
+        }
+        guard setPosition(
+            appKitPosition(for: positionedFrame),
+            on: element
+        ) == .success else {
+            if !sizesApproximatelyEqual(targetSize, currentFrame.size) {
+                _ = setSize(currentFrame.size, on: element)
+                _ = setPosition(appKitPosition(for: currentFrame), on: element)
+            }
+            return false
+        }
+
+        guard let verifiedFrame = copyAppKitFrame(from: element),
+              displayIdentifier(forWindowFrame: verifiedFrame) == targetDisplayIdentifier else {
+            return false
+        }
+        mutationStates.removeValue(forKey: windowIdentifier)
+        arrangementStates.removeValue(forKey: windowIdentifier)
+        lastObservedFrames[windowIdentifier] = verifiedFrame
+        return true
     }
 
     func constrainWindow(
@@ -476,6 +757,14 @@ final class AccessibilityWindowProvider {
     private func sizesApproximatelyEqual(_ lhs: CGSize, _ rhs: CGSize) -> Bool {
         abs(lhs.width - rhs.width) <= 2
             && abs(lhs.height - rhs.height) <= 2
+    }
+
+    private static func loadFunction<T>(named name: String, as type: T.Type) -> T? {
+        guard let skyLightHandle,
+              let symbol = dlsym(skyLightHandle, name) else {
+            return nil
+        }
+        return unsafeBitCast(symbol, to: type)
     }
 
     private func taskbarWindowDisposition(
